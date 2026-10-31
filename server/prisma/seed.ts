@@ -1,4 +1,4 @@
-import { PrismaClient, MediaKind, PublishStatus, MediaSourceType } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 const movies = [
  ["The Last Frontier","A rescue team ventures beyond the edge of the known world.",2025,["Adventure","Sci-Fi"]],
@@ -18,8 +18,8 @@ const series = [
  ["The Night Shift","The staff of a city hospital face extraordinary nights.",2023,["Drama","Medical"]]
 ] as const;
 async function main(){
- for(const [title,description,year,genres] of movies){const slug=title.toLowerCase().replace(/[^a-z0-9]+/g,"-");await prisma.media.upsert({where:{slug},update:{},create:{title,slug,description,kind:MediaKind.MOVIE,sourceType:MediaSourceType.EMBED,status:PublishStatus.PUBLISHED,year,genres:[...genres],posterUrl:"https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=600",backdropUrl:"https://images.unsplash.com/photo-1440404653325-ab127d49abc1?w=1600"}})}
- for(const [title,description,year,genres] of series){const slug=title.toLowerCase().replace(/[^a-z0-9]+/g,"-");await prisma.media.upsert({where:{slug},update:{},create:{title,slug,description,kind:MediaKind.SERIES,sourceType:MediaSourceType.EMBED,status:PublishStatus.PUBLISHED,year,genres:[...genres],posterUrl:"https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=600",backdropUrl:"https://images.unsplash.com/photo-1440404653325-ab127d49abc1?w=1600"}})}
+ for(const [title,description,year,genres] of movies){const slug=title.toLowerCase().replace(/[^a-z0-9]+/g,"-");await prisma.media.upsert({where:{slug},update:{},create:{title,slug,description,kind:"MOVIE",sourceType:"EMBED",status:"PUBLISHED",year,genres:JSON.stringify(genres),cast:"[]",posterUrl:"https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=600",backdropUrl:"https://images.unsplash.com/photo-1440404653325-ab127d49abc1?w=1600"}})}
+ for(const [title,description,year,genres] of series){const slug=title.toLowerCase().replace(/[^a-z0-9]+/g,"-");await prisma.media.upsert({where:{slug},update:{},create:{title,slug,description,kind:"SERIES",sourceType:"EMBED",status:"PUBLISHED",year,genres:[...genres],posterUrl:"https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=600",backdropUrl:"https://images.unsplash.com/photo-1440404653325-ab127d49abc1?w=1600"}})}
  console.log("Seeded 10 sample movies and 3 sample series.");
 }
 main().catch(error=>{console.error(error);process.exit(1)}).finally(async()=>prisma.$disconnect());
