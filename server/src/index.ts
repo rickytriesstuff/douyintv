@@ -130,7 +130,7 @@ const safeExternalUrl = (value: string) => { try { const u = new URL(value); ret
 app.get("/api/media", async (req, res) => {
   const where: any = { status: "PUBLISHED" };
   if (req.query.kind && Object.values(MediaKind).includes(req.query.kind as MediaKind)) where.kind = req.query.kind;
-  if (typeof req.query.search === "string" && req.query.search.trim()) where.OR = [{ title: { contains: req.query.search.trim(), mode: "insensitive" } }, { description: { contains: req.query.search.trim(), mode: "insensitive" } }];
+  if (typeof req.query.search === "string" && req.query.search.trim()) where.OR = [{ title: { contains: req.query.search.trim() } }, { description: { contains: req.query.search.trim(), mode: "insensitive" } }];
   const media = await prisma.media.findMany({ where, include: { episodes: { where: { status: "PUBLISHED" }, orderBy: [{ seasonNumber: "asc" }, { episodeNumber: "asc" }] }, creator: { select: { id: true, displayName: true, avatarUrl: true } } }, orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }], take: 100 });
   res.json({ media });
 });
@@ -154,18 +154,6 @@ app.patch("/api/admin/media/:id", requireAuth, requireAdmin, async (req, res) =>
   res.json({ media });
 });
 app.delete("/api/admin/media/:id", requireAuth, requireAdmin, async (req, res) => { await prisma.media.delete({ where: { id: req.params.id } }); res.status(204).end(); });
-app.post("/api/admin/uploads/presign", requireAuth, requireAdmin, async (req, res) => {
-  if (!s3 || !process.env.S3_BUCKET) return res.status(503).json({ error: "S3 storage is not configured. Add the S3 environment variables first." });
-  const parsed = z.object({ fileName: z.string().min(1).max(240), contentType: z.string().min(1).max(120), size: z.number().int().positive().max(5 * 1024 * 1024 * 1024) }).safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Provide a file name, content type and valid file size (maximum 5GB)" });
-  if (!parsed.data.contentType.startsWith("video/")) return res.status(400).json({ error: "Only video uploads are supported here" });
-  const ext = parsed.data.fileName.split(".").pop()?.replace(/[^a-zA-Z0-9]/g, "") || "mp4";
-  const key = "uploads/" + new Date().toISOString().slice(0,10) + "/" + randomUUID() + "." + ext;
-  const command = new PutObjectCommand({ Bucket: process.env.S3_BUCKET, Key: key, ContentType: parsed.data.contentType });
-  const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 900 });
-  const base = (process.env.S3_PUBLIC_BASE_URL || "").replace(/\/$/, "");
-  res.json({ uploadUrl, key, sourceUrl: base ? base + "/" + key : null, expiresIn: 900 });
-});
 app.get("/api/admin/live-channels", requireAuth, requireAdmin, async (_req, res) => res.json({ channels: await prisma.liveChannel.findMany({ orderBy: { sortOrder: "asc" } }) }));
 app.post("/api/admin/live-channels", requireAuth, requireAdmin, async (req, res) => {
   const parsed = z.object({ name: z.string().trim().min(1).max(120), description: z.string().max(500).optional(), embedUrl: embedUrlSchema, thumbnailUrl: z.string().url().optional().or(z.literal("")), category: z.string().max(80).optional(), isActive: z.boolean().default(true), sortOrder: z.number().int().default(0) }).safeParse(req.body);
@@ -211,19 +199,6 @@ app.put("/api/creator/tip-link", requireAuth, async (req, res) => {
   if (!parsed.success || !safeExternalUrl(parsed.data?.url || "")) return res.status(400).json({ error: "Enter a valid tip link" });
   const tipLink = await prisma.tipLink.upsert({ where: { creatorId: user.id }, create: { creatorId: user.id, ...parsed.data }, update: parsed.data });
   res.json({ tipLink });
-});
-
-app.post("/api/creator/uploads/presign", requireAuth, async (req, res) => {
- const user = await prisma.user.findUnique({ where: { id: req.session.user!.id } });
- if (user?.subscription !== "PREMIUM" || user.creatorStatus !== "ACTIVE") return res.status(403).json({ error: "An active Premium creator account is required" });
- if (!s3 || !process.env.S3_BUCKET) return res.status(503).json({ error: "Video storage is not configured yet" });
- const parsed = z.object({ fileName: z.string().min(1).max(240), contentType: z.string().startsWith("video/"), size: z.number().int().positive().max(5 * 1024 * 1024 * 1024) }).safeParse(req.body);
- if (!parsed.success) return res.status(400).json({ error: "Select a video file smaller than 5GB" });
- const ext = parsed.data.fileName.split(".").pop()?.replace(/[^a-zA-Z0-9]/g, "") || "mp4";
- const key = "creator-uploads/" + user.id + "/" + randomUUID() + "." + ext;
- const uploadUrl = await getSignedUrl(s3, new PutObjectCommand({ Bucket: process.env.S3_BUCKET, Key: key, ContentType: parsed.data.contentType }), { expiresIn: 900 });
- const base = (process.env.S3_PUBLIC_BASE_URL || "").replace(/\/$/, "");
- res.json({ uploadUrl, key, sourceUrl: base ? base + "/" + key : null, expiresIn: 900 });
 });
 
 app.post("/api/creator/media", requireAuth, async (req, res) => {
