@@ -17,7 +17,7 @@ model User {
   avatarUrl          String?
   role               String @default("USER")
   subscription       String @default("FREE")
-  subscriptionPrice  Decimal  @default(0)
+  subscriptionPrice  Float  @default(0)
   creatorStatus      String @default("NONE")
   profiles           Profile[]
   media              Media[]  @relation("CreatorMedia")
@@ -172,7 +172,7 @@ model CreatorTip {
   id          String @id @default(cuid())
   creatorId   String
   viewerId    String?
-  amount      Decimal
+  amount      Float
   currency    String @default("USD")
   externalRef String?
   createdAt   DateTime @default(now())
