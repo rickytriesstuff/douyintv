@@ -223,6 +223,18 @@ app.post("/api/creator/media", requireAuth, async (req, res) => {
   res.status(201).json({ media });
 });
 
+
+app.get("/api/admin/creators", requireAuth, requireAdmin, async (_req, res) => {
+ const creators = await prisma.user.findMany({ where: { creatorStatus: { in: ["PENDING","ACTIVE","SUSPENDED"] } }, select: { id: true, email: true, displayName: true, subscription: true, creatorStatus: true, createdAt: true, tipLink: true }, orderBy: { createdAt: "desc" } });
+ res.json({ creators });
+});
+app.patch("/api/admin/creators/:id", requireAuth, requireAdmin, async (req, res) => {
+ const status = z.enum(["ACTIVE","SUSPENDED","NONE"]).safeParse(req.body.status);
+ if (!status.success) return res.status(400).json({ error: "Invalid creator status" });
+ const user = await prisma.user.update({ where: { id: req.params.id }, data: { creatorStatus: status.data } });
+ res.json({ creator: safeUser(user) });
+});
+
 app.get("/api/admin/overview", requireAuth, requireAdmin, async (_req, res) => {
   const [users, media, creators] = await Promise.all([prisma.user.count(), prisma.media.count(), prisma.user.count({ where: { creatorStatus: "ACTIVE" } })]);
   res.json({ users, media, creators });
