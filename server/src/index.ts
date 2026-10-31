@@ -102,12 +102,13 @@ app.post("/api/profiles", requireAuth, async (req, res) => {
   res.status(201).json({ profile });
 });
 
+const embedUrlSchema = z.preprocess((value) => { if (typeof value !== "string") return value; const match = value.match(/<iframe[^>]+src="([^"]+)"/i) || value.match(/<iframe[^>]+src=\x27([^\x27]+)\x27/i); return match ? match[1] : value.trim(); }, z.string().url().or(z.literal("")));
 const mediaSchema = z.object({
   title: z.string().trim().min(1).max(180),
   description: z.string().max(5000).optional(),
   kind: z.nativeEnum(MediaKind),
   sourceType: z.nativeEnum(MediaSourceType).default("EMBED"),
-  sourceUrl: z.string().url().optional().or(z.literal("")),
+  sourceUrl: embedUrlSchema.optional(),
   posterUrl: z.string().url().optional().or(z.literal("")),
   backdropUrl: z.string().url().optional().or(z.literal("")),
   thumbnailUrl: z.string().url().optional().or(z.literal("")),
@@ -155,8 +156,8 @@ app.patch("/api/admin/media/:id", requireAuth, requireAdmin, async (req, res) =>
 app.delete("/api/admin/media/:id", requireAuth, requireAdmin, async (req, res) => { await prisma.media.delete({ where: { id: req.params.id } }); res.status(204).end(); });
 app.post("/api/admin/uploads/presign", requireAuth, requireAdmin, async (req, res) => {
   if (!s3 || !process.env.S3_BUCKET) return res.status(503).json({ error: "S3 storage is not configured. Add the S3 environment variables first." });
-  const parsed = z.object({ fileName: z.string().min(1).max(240), contentType: z.string().min(1).max(120), size: z.number().int().positive().max(20 * 1024 * 1024 * 1024) }).safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Provide a file name, content type and valid file size (maximum 20GB)" });
+  const parsed = z.object({ fileName: z.string().min(1).max(240), contentType: z.string().min(1).max(120), size: z.number().int().positive().max(5 * 1024 * 1024 * 1024) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Provide a file name, content type and valid file size (maximum 5GB)" });
   if (!parsed.data.contentType.startsWith("video/")) return res.status(400).json({ error: "Only video uploads are supported here" });
   const ext = parsed.data.fileName.split(".").pop()?.replace(/[^a-zA-Z0-9]/g, "") || "mp4";
   const key = "uploads/" + new Date().toISOString().slice(0,10) + "/" + randomUUID() + "." + ext;
@@ -167,13 +168,13 @@ app.post("/api/admin/uploads/presign", requireAuth, requireAdmin, async (req, re
 });
 app.get("/api/admin/live-channels", requireAuth, requireAdmin, async (_req, res) => res.json({ channels: await prisma.liveChannel.findMany({ orderBy: { sortOrder: "asc" } }) }));
 app.post("/api/admin/live-channels", requireAuth, requireAdmin, async (req, res) => {
-  const parsed = z.object({ name: z.string().trim().min(1).max(120), description: z.string().max(500).optional(), embedUrl: z.string().url(), thumbnailUrl: z.string().url().optional().or(z.literal("")), category: z.string().max(80).optional(), isActive: z.boolean().default(true), sortOrder: z.number().int().default(0) }).safeParse(req.body);
+  const parsed = z.object({ name: z.string().trim().min(1).max(120), description: z.string().max(500).optional(), embedUrl: embedUrlSchema, thumbnailUrl: z.string().url().optional().or(z.literal("")), category: z.string().max(80).optional(), isActive: z.boolean().default(true), sortOrder: z.number().int().default(0) }).safeParse(req.body);
   if (!parsed.success || !safeExternalUrl(parsed.data?.embedUrl || "")) return res.status(400).json({ error: "Enter a channel name and valid HTTP/HTTPS embed or iframe URL" });
   const channel = await prisma.liveChannel.create({ data: { ...parsed.data, thumbnailUrl: parsed.data.thumbnailUrl || null } });
   res.status(201).json({ channel });
 });
 app.patch("/api/admin/live-channels/:id", requireAuth, requireAdmin, async (req, res) => {
-  const parsed = z.object({ name: z.string().min(1).max(120).optional(), description: z.string().max(500).optional(), embedUrl: z.string().url().optional(), thumbnailUrl: z.string().url().optional().or(z.literal("")), category: z.string().max(80).optional(), isActive: z.boolean().optional(), sortOrder: z.number().int().optional() }).safeParse(req.body);
+  const parsed = z.object({ name: z.string().min(1).max(120).optional(), description: z.string().max(500).optional(), embedUrl: embedUrlSchema.optional(), thumbnailUrl: z.string().url().optional().or(z.literal("")), category: z.string().max(80).optional(), isActive: z.boolean().optional(), sortOrder: z.number().int().optional() }).safeParse(req.body);
   if (!parsed.success || (parsed.data.embedUrl && !safeExternalUrl(parsed.data.embedUrl))) return res.status(400).json({ error: "Invalid channel details" });
   const channel = await prisma.liveChannel.update({ where: { id: req.params.id }, data: { ...parsed.data, thumbnailUrl: parsed.data.thumbnailUrl || null } });
   res.json({ channel });
