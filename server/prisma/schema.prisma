@@ -1,0 +1,205 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AccountRole { USER ADMIN }
+enum ProfileKind { STANDARD KIDS }
+enum SubscriptionTier { FREE PREMIUM }
+enum CreatorStatus { NONE PENDING ACTIVE SUSPENDED }
+enum MediaKind { MOVIE SERIES EPISODE HOME_VIDEO }
+enum MediaSourceType { UPLOAD EMBED }
+enum PublishStatus { DRAFT PUBLISHED PROCESSING }
+enum StreamStatus { OFFLINE LIVE }
+
+model User {
+  id                 String   @id @default(cuid())
+  email              String   @unique
+  passwordHash       String?
+  googleId           String?  @unique
+  displayName        String
+  avatarUrl          String?
+  role               AccountRole @default(USER)
+  subscription       SubscriptionTier @default(FREE)
+  subscriptionPrice  Decimal  @default(0) @db.Decimal(8,2)
+  creatorStatus      CreatorStatus @default(NONE)
+  profiles           Profile[]
+  media              Media[]  @relation("CreatorMedia")
+  watchProgress      WatchProgress[]
+  listItems          MyList[]
+  ratings            Rating[]
+  sessions           Session[]
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model Profile {
+  id          String @id @default(cuid())
+  userId      String
+  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  avatarUrl   String?
+  isKids      Boolean @default(false)
+  pinHash     String?
+  progress    WatchProgress[]
+  listItems   MyList[]
+  ratings     Rating[]
+  createdAt   DateTime @default(now())
+}
+
+model Session {
+  id        String @id
+  userId    String
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+}
+
+model Library {
+  id          String @id @default(cuid())
+  name        String
+  description String?
+  kind        String
+  media       Media[]
+  createdAt   DateTime @default(now())
+}
+
+model Media {
+  id            String @id @default(cuid())
+  title         String
+  slug          String @unique
+  description   String @default("")
+  kind          MediaKind
+  sourceType    MediaSourceType @default(UPLOAD)
+  sourceUrl     String?
+  playbackUrl   String?
+  posterUrl     String?
+  backdropUrl   String?
+  trailerUrl    String?
+  thumbnailUrl  String?
+  year          Int?
+  ageRating     String?
+  rating        Float?
+  genres        String[]
+  cast          String[]
+  status        PublishStatus @default(DRAFT)
+  isFeatured    Boolean @default(false)
+  isLive        Boolean @default(false)
+  streamStatus  StreamStatus @default(OFFLINE)
+  seasonNumber  Int?
+  episodeNumber Int?
+  parentId      String?
+  parent        Media? @relation("Episodes", fields: [parentId], references: [id], onDelete: Cascade)
+  episodes      Media[] @relation("Episodes")
+  libraryId     String?
+  library       Library? @relation(fields: [libraryId], references: [id], onDelete: SetNull)
+  creatorId     String?
+  creator       User? @relation("CreatorMedia", fields: [creatorId], references: [id], onDelete: SetNull)
+  subtitles     Subtitle[]
+  progress      WatchProgress[]
+  listItems     MyList[]
+  ratings       Rating[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  @@index([kind, status])
+  @@index([creatorId])
+}
+
+model Subtitle {
+  id        String @id @default(cuid())
+  mediaId   String
+  media     Media @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  language  String
+  label     String
+  format    String
+  url       String
+}
+
+model WatchProgress {
+  id          String @id @default(cuid())
+  userId      String
+  profileId   String
+  mediaId     String
+  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile     Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  media       Media @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  seconds     Int @default(0)
+  duration    Int @default(0)
+  updatedAt   DateTime @updatedAt
+  @@unique([profileId, mediaId])
+}
+
+model MyList {
+  id        String @id @default(cuid())
+  userId    String
+  profileId String
+  mediaId   String
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  media     Media @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@unique([profileId, mediaId])
+}
+
+model Rating {
+  id        String @id @default(cuid())
+  userId    String
+  profileId String
+  mediaId   String
+  value     Int
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  media     Media @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  @@unique([profileId, mediaId])
+}
+
+model LiveChannel {
+  id          String @id @default(cuid())
+  name        String
+  description String?
+  embedUrl    String
+  thumbnailUrl String?
+  category    String?
+  isActive    Boolean @default(true)
+  sortOrder   Int @default(0)
+  createdAt   DateTime @default(now())
+}
+
+model TipLink {
+  id        String @id @default(cuid())
+  creatorId String @unique
+  platform  String
+  url       String
+  updatedAt DateTime @updatedAt
+}
+
+model CreatorTip {
+  id          String @id @default(cuid())
+  creatorId   String
+  viewerId    String?
+  amount      Decimal @db.Decimal(10,2)
+  currency    String @default("USD")
+  externalRef String?
+  createdAt   DateTime @default(now())
+}
+
+model WatchParty {
+  id        String @id @default(cuid())
+  roomCode  String @unique
+  mediaId   String
+  hostId    String
+  isActive  Boolean @default(true)
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id        String @id @default(cuid())
+  userId    String
+  title     String
+  body      String
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+}
