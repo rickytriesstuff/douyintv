@@ -1,6 +1,6 @@
 import {useEffect,useState} from "react";
 import {Upload,Film,Radio,Link2,Plus,Trash2,Save,Search,RefreshCw,Image as ImageIcon,CheckCircle2} from "lucide-react";
-const API=import.meta.env.VITE_API_URL||"http://localhost:4000";
+const API=import.meta.env.VITE_API_URL||(import.meta.env.DEV?"http://localhost:4000":"");
 type Media={id:string;title:string;kind:string;status:string;sourceType:string;posterUrl?:string|null;sourceUrl?:string|null;parentId?:string|null;episodes?:Media[]};
 type Channel={id:string;name:string;embedUrl:string;thumbnailUrl?:string|null;category?:string|null;isActive:boolean};
 const blankMedia={title:"",description:"",kind:"MOVIE",sourceType:"EMBED",sourceUrl:"",posterUrl:"",backdropUrl:"",thumbnailUrl:"",trailerUrl:"",year:"",ageRating:"",rating:"",genres:"",cast:"",status:"PUBLISHED",isFeatured:false,parentId:"",seasonNumber:"1",episodeNumber:"1"};
