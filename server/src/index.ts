@@ -138,7 +138,7 @@ app.get("/api/admin/media", requireAuth, requireAdmin, async (_req, res) => res.
 app.post("/api/admin/media", requireAuth, requireAdmin, async (req, res) => {
   const parsed = mediaSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || "Invalid media details" });
-  if (parsed.data.sourceType === "EMBED" && (!parsed.data.sourceUrl || !safeExternalUrl(parsed.data.sourceUrl))) return res.status(400).json({ error: "Provide a valid HTTP or HTTPS embed URL" });
+  if (!parsed.data.sourceUrl || !safeExternalUrl(parsed.data.sourceUrl)) return res.status(400).json({ error: "Provide a valid HTTP or HTTPS video or embed URL" });
   if (parsed.data.kind === "EPISODE" && !parsed.data.parentId) return res.status(400).json({ error: "Episodes must belong to a series" });
   if (parsed.data.parentId) { const parent = await prisma.media.findUnique({ where: { id: parsed.data.parentId } }); if (!parent || parent.kind !== "SERIES") return res.status(400).json({ error: "Select a valid series for this episode" }); }
   const data: any = { ...parsed.data, slug: slugify(parsed.data.title), sourceUrl: parsed.data.sourceUrl || null, posterUrl: parsed.data.posterUrl || null, backdropUrl: parsed.data.backdropUrl || null, thumbnailUrl: parsed.data.thumbnailUrl || null, trailerUrl: parsed.data.trailerUrl || null };
@@ -232,8 +232,9 @@ app.post("/api/creator/media", requireAuth, async (req, res) => {
   const parsed = mediaSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || "Invalid media details" });
   if (parsed.data.kind === "EPISODE" && !parsed.data.parentId) return res.status(400).json({ error: "Episodes must belong to a series" });
-  if (parsed.data.sourceType === "EMBED" && (!parsed.data.sourceUrl || !safeExternalUrl(parsed.data.sourceUrl))) return res.status(400).json({ error: "Provide a valid embed URL" });
-  const media = await prisma.media.create({ data: { ...parsed.data, slug: slugify(parsed.data.title), creatorId: user.id, sourceUrl: parsed.data.sourceUrl || null } });
+  if (!parsed.data.sourceUrl || !safeExternalUrl(parsed.data.sourceUrl)) return res.status(400).json({ error: "Provide a valid video or embed URL" });
+  if (parsed.data.parentId) { const parent = await prisma.media.findFirst({ where: { id: parsed.data.parentId, creatorId: user.id, kind: "SERIES" } }); if (!parent) return res.status(400).json({ error: "Choose one of your own series for this episode" }); }
+  const media = await prisma.media.create({ data: { ...parsed.data, isFeatured: false, slug: slugify(parsed.data.title), creatorId: user.id, sourceUrl: parsed.data.sourceUrl } });
   res.status(201).json({ media });
 });
 
