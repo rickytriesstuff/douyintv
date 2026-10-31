@@ -2,7 +2,10 @@
   "name": "douyintv",
   "private": true,
   "version": "0.1.0",
-  "workspaces": ["client", "server"],
+  "workspaces": [
+    "client",
+    "server"
+  ],
   "scripts": {
     "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
     "dev:client": "npm --workspace client run dev",
@@ -10,7 +13,10 @@
     "build": "npm --workspace client run build && npm --workspace server run build",
     "db:generate": "npm --workspace server run db:generate",
     "db:migrate": "npm --workspace server run db:migrate",
-    "db:seed": "npm --workspace server run db:seed"
+    "db:seed": "npm --workspace server run db:seed",
+    "db:push": "npm --workspace server run db:push"
   },
-  "devDependencies": { "concurrently": "^9.1.2" }
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
 }
