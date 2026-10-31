@@ -185,7 +185,7 @@ app.get("/api/admin/tmdb", requireAuth, requireAdmin, async (req, res) => {
   if (!process.env.TMDB_API_KEY) return res.status(503).json({ error: "TMDB_API_KEY is not configured" });
   const query = z.string().trim().min(1).max(150).safeParse(req.query.title);
   if (!query.success) return res.status(400).json({ error: "Enter a title to search" });
-  const response = await fetch("https://api.themoviedb.org/3/search/multi?query=" + encodeURIComponent(query.data) + "&include_adult=false", { headers: { Authorization: "Bearer " + process.env.TMDB_API_KEY, accept: "application/json" } });
+  const response = await fetch("https://api.themoviedb.org/3/search/multi?query=" + encodeURIComponent(query.data) + "&include_adult=false&api_key=" + encodeURIComponent(process.env.TMDB_API_KEY), { headers: { accept: "application/json" } });
   if (!response.ok) return res.status(502).json({ error: "TMDB lookup failed" });
   const data: any = await response.json();
   res.json({ results: (data.results || []).filter((x: any) => x.media_type === "movie" || x.media_type === "tv").slice(0, 10).map((x: any) => ({ id: x.id, title: x.title || x.name, description: x.overview, year: Number((x.release_date || x.first_air_date || "").slice(0,4)) || null, posterUrl: x.poster_path ? "https://image.tmdb.org/t/p/w500" + x.poster_path : null, backdropUrl: x.backdrop_path ? "https://image.tmdb.org/t/p/w1280" + x.backdrop_path : null, rating: x.vote_average, kind: x.media_type === "tv" ? "SERIES" : "MOVIE" })) });
