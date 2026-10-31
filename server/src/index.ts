@@ -4,6 +4,7 @@ import cors from "cors";
 import helmet from "helmet";
 import session from "express-session";
 import passport from "passport";
+import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { PrismaClient } from "@prisma/client";
@@ -27,6 +28,13 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 type SessionUser = { id: string; email: string; displayName: string; role: string; subscription: string; creatorStatus: string };
+passport.serializeUser((user: any, done) => done(null, user.id));
+passport.deserializeUser(async (id: string, done) => { try { const user = await prisma.user.findUnique({ where: { id } }); done(null, user || false); } catch (error) { done(error); } });
+if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+  passport.use(new GoogleStrategy({ clientID: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET, callbackURL: process.env.GOOGLE_CALLBACK_URL || "http://localhost:4000/api/auth/google/callback" }, async (_accessToken, _refreshToken, profile, done) => {
+    try { const email = profile.emails?.[0]?.value?.toLowerCase(); if (!email) return done(new Error("Google account did not provide an email")); const user = await prisma.user.upsert({ where: { email }, update: { googleId: profile.id, avatarUrl: profile.photos?.[0]?.value }, create: { email, googleId: profile.id, displayName: profile.displayName || email.split("@")[0], avatarUrl: profile.photos?.[0]?.value, profiles: { create: { name: profile.displayName || "Main profile" } } } }); done(null, user); } catch (error) { done(error as Error); }
+  }));
+}
 declare module "express-session" { interface SessionData { user?: SessionUser } }
 
 const registerSchema = z.object({
@@ -73,6 +81,8 @@ app.post("/api/auth/login", async (req, res) => {
   req.session.user = safeUser(user);
   res.json({ user: req.session.user });
 });
+app.get("/api/auth/google", (req, res, next) => { if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) return res.status(503).json({ error: "Google sign-in is not configured yet" }); passport.authenticate("google", { scope: ["profile", "email"] })(req, res, next); });
+app.get("/api/auth/google/callback", passport.authenticate("google", { failureRedirect: (process.env.CLIENT_ORIGIN || "http://localhost:5173") + "?auth=failed" }), (req, res) => { req.session.user = safeUser(req.user as any); res.redirect(process.env.CLIENT_ORIGIN || "http://localhost:5173"); });
 app.get("/api/auth/me", (req, res) => res.json({ user: req.session.user || null }));
 app.post("/api/auth/logout", (req, res) => req.session.destroy(() => { res.clearCookie("douyintv.sid"); res.status(204).end(); }));
 app.get("/api/profiles", requireAuth, async (req, res) => {
