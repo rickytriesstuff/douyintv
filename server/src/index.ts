@@ -212,6 +212,20 @@ app.put("/api/creator/tip-link", requireAuth, async (req, res) => {
   const tipLink = await prisma.tipLink.upsert({ where: { creatorId: user.id }, create: { creatorId: user.id, ...parsed.data }, update: parsed.data });
   res.json({ tipLink });
 });
+
+app.post("/api/creator/uploads/presign", requireAuth, async (req, res) => {
+ const user = await prisma.user.findUnique({ where: { id: req.session.user!.id } });
+ if (user?.subscription !== "PREMIUM" || user.creatorStatus !== "ACTIVE") return res.status(403).json({ error: "An active Premium creator account is required" });
+ if (!s3 || !process.env.S3_BUCKET) return res.status(503).json({ error: "Video storage is not configured yet" });
+ const parsed = z.object({ fileName: z.string().min(1).max(240), contentType: z.string().startsWith("video/"), size: z.number().int().positive().max(5 * 1024 * 1024 * 1024) }).safeParse(req.body);
+ if (!parsed.success) return res.status(400).json({ error: "Select a video file smaller than 5GB" });
+ const ext = parsed.data.fileName.split(".").pop()?.replace(/[^a-zA-Z0-9]/g, "") || "mp4";
+ const key = "creator-uploads/" + user.id + "/" + randomUUID() + "." + ext;
+ const uploadUrl = await getSignedUrl(s3, new PutObjectCommand({ Bucket: process.env.S3_BUCKET, Key: key, ContentType: parsed.data.contentType }), { expiresIn: 900 });
+ const base = (process.env.S3_PUBLIC_BASE_URL || "").replace(/\/$/, "");
+ res.json({ uploadUrl, key, sourceUrl: base ? base + "/" + key : null, expiresIn: 900 });
+});
+
 app.post("/api/creator/media", requireAuth, async (req, res) => {
   const user = await prisma.user.findUnique({ where: { id: req.session.user!.id } });
   if (user?.subscription !== "PREMIUM" || user.creatorStatus !== "ACTIVE") return res.status(403).json({ error: "An active Premium creator account is required" });
