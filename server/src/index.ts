@@ -173,7 +173,13 @@ app.patch("/api/admin/media/:id", requireAuth, requireAdmin, async (req, res) =>
   res.json({ media: serializeMedia(media) });
 });
 app.delete("/api/admin/media/:id", requireAuth, requireAdmin, async (req, res) => { await prisma.media.delete({ where: { id: req.params.id } }); res.status(204).end(); });
-*/\napp.get("/api/admin/live-channels", requireAuth, requireAdmin, async (_req, res) => res.json({ channels: await prisma.liveChannel.findMany({ orderBy: { sortOrder: "asc" } }) }));
+
+app.post("/api/admin/uploads", requireAuth, requireAdmin, upload.single("file"), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "Choose a valid video file (maximum 5GB)." });
+  const sourceUrl = (publicApiBase() || `${req.protocol}://${req.get("host")}`) + "/media/" + req.file.filename;
+  res.status(201).json({ sourceUrl, fileName: req.file.filename, size: req.file.size });
+});
+app.get("/api/admin/live-channels", requireAuth, requireAdmin, async (_req, res) => res.json({ channels: await prisma.liveChannel.findMany({ orderBy: { sortOrder: "asc" } }) }));
 app.post("/api/admin/live-channels", requireAuth, requireAdmin, async (req, res) => {
   const parsed = z.object({ name: z.string().trim().min(1).max(120), description: z.string().max(500).optional(), embedUrl: embedUrlSchema, thumbnailUrl: z.string().url().optional().or(z.literal("")), category: z.string().max(80).optional(), isActive: z.boolean().default(true), sortOrder: z.number().int().default(0) }).safeParse(req.body);
   if (!parsed.success || !safeExternalUrl(parsed.data?.embedUrl || "")) return res.status(400).json({ error: "Enter a channel name and valid HTTP/HTTPS embed or iframe URL" });
@@ -220,7 +226,18 @@ app.put("/api/creator/tip-link", requireAuth, async (req, res) => {
   res.json({ tipLink });
 });
 
-*/\napp.post("/api/creator/media", requireAuth, async (req, res) => {
+
+app.post("/api/creator/uploads", requireAuth, async (req, res) => {
+ const user = await prisma.user.findUnique({ where: { id: req.session.user!.id } });
+ if (user?.subscription !== "PREMIUM" || user.creatorStatus !== "ACTIVE") return res.status(403).json({ error: "An active Premium creator account is required" });
+ upload.single("file")(req, res, (error) => {
+   if (error) return res.status(400).json({ error: (error as Error).message || "Upload failed" });
+   if (!req.file) return res.status(400).json({ error: "Choose a valid video file (maximum 5GB)." });
+   const sourceUrl = (publicApiBase() || `${req.protocol}://${req.get("host")}`) + "/media/" + req.file.filename;
+   res.status(201).json({ sourceUrl, fileName: req.file.filename, size: req.file.size });
+ });
+});
+app.post("/api/creator/media", requireAuth, async (req, res) => {
   const user = await prisma.user.findUnique({ where: { id: req.session.user!.id } });
   if (user?.subscription !== "PREMIUM" || user.creatorStatus !== "ACTIVE") return res.status(403).json({ error: "An active Premium creator account is required" });
   const parsed = mediaSchema.safeParse(req.body);
