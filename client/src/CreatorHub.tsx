@@ -1,6 +1,6 @@
 import {useEffect,useState} from "react";
 import {Crown,ExternalLink,Plus,Video,Wallet,CheckCircle2,Clock,ShieldCheck} from "lucide-react";
-const API=import.meta.env.VITE_API_URL||"http://localhost:4000";
+const API=import.meta.env.VITE_API_URL||(import.meta.env.DEV?"http://localhost:4000":"");
 export default function CreatorHub({user,onRefresh}:{user:any;onRefresh:()=>void}){
  const [data,setData]=useState<any>(null),[platform,setPlatform]=useState("Tip link"),[url,setUrl]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState(""),[message,setMessage]=useState(""),[mediaForm,setMediaForm]=useState<any>({title:"",description:"",kind:"MOVIE",sourceType:"EMBED",sourceUrl:"",posterUrl:"",parentId:"",seasonNumber:1,episodeNumber:1});
  async function request(path:string,options:RequestInit={}){const r=await fetch(API+path,{credentials:"include",...options,headers:{"Content-Type":"application/json",...(options.headers||{})}});const d=r.status===204?null:await r.json().catch(()=>({}));if(!r.ok)throw Error(d?.error||"Request failed");return d}
