@@ -7,15 +7,32 @@ import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { PrismaClient, MediaKind, MediaSourceType, PublishStatus } from "@prisma/client";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { PrismaClient } from "@prisma/client";
+import multer from "multer";
+import path from "node:path";
+import fs from "node:fs";
 import { randomUUID } from "node:crypto";
 
 const app = express();
 const prisma = new PrismaClient();
 const port = Number(process.env.PORT || 4000);
-const s3 = process.env.S3_BUCKET && process.env.S3_ACCESS_KEY_ID && process.env.S3_SECRET_ACCESS_KEY ? new S3Client({ region: process.env.S3_REGION || "auto", endpoint: process.env.S3_ENDPOINT || undefined, forcePathStyle: Boolean(process.env.S3_ENDPOINT), credentials: { accessKeyId: process.env.S3_ACCESS_KEY_ID, secretAccessKey: process.env.S3_SECRET_ACCESS_KEY } }) : null;
+const mediaDir = path.resolve(process.env.MEDIA_DIR || path.join(process.cwd(), "server", "uploads"));
+fs.mkdirSync(mediaDir, { recursive: true });
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, mediaDir),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).replace(/[^.a-zA-Z0-9]/g, "").slice(0, 12) || ".mp4";
+      cb(null, randomUUID() + ext);
+    }
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => cb(null, file.mimetype.startsWith("video/"))
+});
+app.use("/media", express.static(mediaDir, { fallthrough: false, setHeaders: (res) => res.setHeader("Cache-Control", "public, max-age=31536000, immutable") }));
+const publicApiBase = () => (process.env.PUBLIC_API_URL || "").replace(/\/$/, "");
+const serializeMedia = (item: any): any => item ? { ...item, genres: typeof item.genres === "string" ? JSON.parse(item.genres || "[]") : item.genres, cast: typeof item.cast === "string" ? JSON.parse(item.cast || "[]") : item.cast, ...(item.episodes ? { episodes: item.episodes.map(serializeMedia) } : {}) } : item;
+const serializeMediaList = (items: any[]) => items.map(serializeMedia);
 
 app.set("trust proxy", 1);
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
@@ -60,7 +77,7 @@ function requireAdmin(req: express.Request, res: express.Response, next: express
   next();
 }
 
-app.get("/api/health", (_req, res) => res.json({ ok: true, app: "douyintv", stage: 1 }));
+app.get("/api/health", (_req, res) => res.json({ ok: true, app: "douyintv", database: "sqlite", mediaStorage: "local-disk" }));
 app.post("/api/auth/register", async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || "Invalid details" });
@@ -106,8 +123,8 @@ const embedUrlSchema = z.preprocess((value) => { if (typeof value !== "string") 
 const mediaSchema = z.object({
   title: z.string().trim().min(1).max(180),
   description: z.string().max(5000).optional(),
-  kind: z.nativeEnum(MediaKind),
-  sourceType: z.nativeEnum(MediaSourceType).default("EMBED"),
+  kind: z.enum(["MOVIE","SERIES","EPISODE","HOME_VIDEO"]),
+  sourceType: z.enum(["UPLOAD","EMBED"]).default("EMBED"),
   sourceUrl: embedUrlSchema.optional(),
   posterUrl: z.string().url().optional().or(z.literal("")),
   backdropUrl: z.string().url().optional().or(z.literal("")),
@@ -118,7 +135,7 @@ const mediaSchema = z.object({
   rating: z.number().min(0).max(10).optional(),
   genres: z.array(z.string().max(40)).max(12).default([]),
   cast: z.array(z.string().max(80)).max(30).default([]),
-  status: z.nativeEnum(PublishStatus).default("DRAFT"),
+  status: z.enum(["DRAFT","PUBLISHED","PROCESSING"]).default("DRAFT"),
   isFeatured: z.boolean().default(false),
   parentId: z.string().optional(),
   seasonNumber: z.number().int().min(1).optional(),
@@ -130,31 +147,33 @@ const safeExternalUrl = (value: string) => { try { const u = new URL(value); ret
 app.get("/api/media", async (req, res) => {
   const where: any = { status: "PUBLISHED" };
   if (req.query.kind && Object.values(MediaKind).includes(req.query.kind as MediaKind)) where.kind = req.query.kind;
-  if (typeof req.query.search === "string" && req.query.search.trim()) where.OR = [{ title: { contains: req.query.search.trim() } }, { description: { contains: req.query.search.trim(), mode: "insensitive" } }];
+  if (typeof req.query.search === "string" && req.query.search.trim()) where.OR = [{ title: { contains: req.query.search.trim() } }, { description: { contains: req.query.search.trim() } }];
   const media = await prisma.media.findMany({ where, include: { episodes: { where: { status: "PUBLISHED" }, orderBy: [{ seasonNumber: "asc" }, { episodeNumber: "asc" }] }, creator: { select: { id: true, displayName: true, avatarUrl: true } } }, orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }], take: 100 });
-  res.json({ media });
+  res.json({ media: serializeMediaList(media) });
 });
-app.get("/api/admin/media", requireAuth, requireAdmin, async (_req, res) => res.json({ media: await prisma.media.findMany({ include: { episodes: true }, orderBy: { updatedAt: "desc" } }) }));
+app.get("/api/admin/media", requireAuth, requireAdmin, async (_req, res) => res.json({ media: serializeMediaList(await prisma.media.findMany({ include: { episodes: true }, orderBy: { updatedAt: "desc" } })) }));
 app.post("/api/admin/media", requireAuth, requireAdmin, async (req, res) => {
   const parsed = mediaSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || "Invalid media details" });
   if (parsed.data.kind !== "SERIES" && (!parsed.data.sourceUrl || !safeExternalUrl(parsed.data.sourceUrl))) return res.status(400).json({ error: "Provide a valid HTTP or HTTPS video or embed URL" });
   if (parsed.data.kind === "EPISODE" && !parsed.data.parentId) return res.status(400).json({ error: "Episodes must belong to a series" });
   if (parsed.data.parentId) { const parent = await prisma.media.findUnique({ where: { id: parsed.data.parentId } }); if (!parent || parent.kind !== "SERIES") return res.status(400).json({ error: "Select a valid series for this episode" }); }
-  const data: any = { ...parsed.data, slug: slugify(parsed.data.title), sourceUrl: parsed.data.sourceUrl || null, posterUrl: parsed.data.posterUrl || null, backdropUrl: parsed.data.backdropUrl || null, thumbnailUrl: parsed.data.thumbnailUrl || null, trailerUrl: parsed.data.trailerUrl || null };
+  const data: any = { ...parsed.data, genres: JSON.stringify(parsed.data.genres), cast: JSON.stringify(parsed.data.cast), slug: slugify(parsed.data.title), sourceUrl: parsed.data.sourceUrl || null, posterUrl: parsed.data.posterUrl || null, backdropUrl: parsed.data.backdropUrl || null, thumbnailUrl: parsed.data.thumbnailUrl || null, trailerUrl: parsed.data.trailerUrl || null };
   const media = await prisma.media.create({ data });
-  res.status(201).json({ media });
+  res.status(201).json({ media: serializeMedia(media) });
 });
 app.patch("/api/admin/media/:id", requireAuth, requireAdmin, async (req, res) => {
   const parsed = mediaSchema.partial().safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid media details" });
   const data: any = { ...parsed.data };
+  if (data.genres) data.genres = JSON.stringify(data.genres);
+  if (data.cast) data.cast = JSON.stringify(data.cast);
   if (data.title) data.slug = slugify(data.title);
   const media = await prisma.media.update({ where: { id: req.params.id }, data });
-  res.json({ media });
+  res.json({ media: serializeMedia(media) });
 });
 app.delete("/api/admin/media/:id", requireAuth, requireAdmin, async (req, res) => { await prisma.media.delete({ where: { id: req.params.id } }); res.status(204).end(); });
-app.get("/api/admin/live-channels", requireAuth, requireAdmin, async (_req, res) => res.json({ channels: await prisma.liveChannel.findMany({ orderBy: { sortOrder: "asc" } }) }));
+*/\napp.get("/api/admin/live-channels", requireAuth, requireAdmin, async (_req, res) => res.json({ channels: await prisma.liveChannel.findMany({ orderBy: { sortOrder: "asc" } }) }));
 app.post("/api/admin/live-channels", requireAuth, requireAdmin, async (req, res) => {
   const parsed = z.object({ name: z.string().trim().min(1).max(120), description: z.string().max(500).optional(), embedUrl: embedUrlSchema, thumbnailUrl: z.string().url().optional().or(z.literal("")), category: z.string().max(80).optional(), isActive: z.boolean().default(true), sortOrder: z.number().int().default(0) }).safeParse(req.body);
   if (!parsed.success || !safeExternalUrl(parsed.data?.embedUrl || "")) return res.status(400).json({ error: "Enter a channel name and valid HTTP/HTTPS embed or iframe URL" });
@@ -190,7 +209,7 @@ app.get("/api/creator/overview", requireAuth, async (req, res) => {
   if (user?.subscription !== "PREMIUM" || user.creatorStatus !== "ACTIVE") return res.status(403).json({ error: "An active Premium creator account is required" });
   const tipLink = await prisma.tipLink.findUnique({ where: { creatorId: user.id } });
   const tips = await prisma.creatorTip.aggregate({ where: { creatorId: user.id }, _sum: { amount: true }, _count: true });
-  res.json({ media: user.media, tipLink, tips: { total: tips._sum.amount || 0, count: tips._count, creatorShare: "100%" } });
+  res.json({ media: serializeMediaList(user.media), tipLink, tips: { total: tips._sum.amount || 0, count: tips._count, creatorShare: "100%" } });
 });
 app.put("/api/creator/tip-link", requireAuth, async (req, res) => {
   const user = await prisma.user.findUnique({ where: { id: req.session.user!.id } });
@@ -201,7 +220,7 @@ app.put("/api/creator/tip-link", requireAuth, async (req, res) => {
   res.json({ tipLink });
 });
 
-app.post("/api/creator/media", requireAuth, async (req, res) => {
+*/\napp.post("/api/creator/media", requireAuth, async (req, res) => {
   const user = await prisma.user.findUnique({ where: { id: req.session.user!.id } });
   if (user?.subscription !== "PREMIUM" || user.creatorStatus !== "ACTIVE") return res.status(403).json({ error: "An active Premium creator account is required" });
   const parsed = mediaSchema.safeParse(req.body);
@@ -209,8 +228,8 @@ app.post("/api/creator/media", requireAuth, async (req, res) => {
   if (parsed.data.kind === "EPISODE" && !parsed.data.parentId) return res.status(400).json({ error: "Episodes must belong to a series" });
   if (parsed.data.kind !== "SERIES" && (!parsed.data.sourceUrl || !safeExternalUrl(parsed.data.sourceUrl))) return res.status(400).json({ error: "Provide a valid video or embed URL" });
   if (parsed.data.parentId) { const parent = await prisma.media.findFirst({ where: { id: parsed.data.parentId, creatorId: user.id, kind: "SERIES" } }); if (!parent) return res.status(400).json({ error: "Choose one of your own series for this episode" }); }
-  const media = await prisma.media.create({ data: { ...parsed.data, isFeatured: false, slug: slugify(parsed.data.title), creatorId: user.id, sourceUrl: parsed.data.sourceUrl || null } });
-  res.status(201).json({ media });
+  const media = await prisma.media.create({ data: { ...parsed.data, genres: JSON.stringify(parsed.data.genres), cast: JSON.stringify(parsed.data.cast), isFeatured: false, slug: slugify(parsed.data.title), creatorId: user.id, sourceUrl: parsed.data.sourceUrl || null } });
+  res.status(201).json({ media: serializeMedia(media) });
 });
 
 
