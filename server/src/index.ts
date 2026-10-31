@@ -146,7 +146,7 @@ const safeExternalUrl = (value: string) => { try { const u = new URL(value); ret
 
 app.get("/api/media", async (req, res) => {
   const where: any = { status: "PUBLISHED" };
-  if (req.query.kind && Object.values(MediaKind).includes(req.query.kind as MediaKind)) where.kind = req.query.kind;
+  if (typeof req.query.kind === "string" && ["MOVIE","SERIES","EPISODE","HOME_VIDEO"].includes(req.query.kind)) where.kind = req.query.kind;
   if (typeof req.query.search === "string" && req.query.search.trim()) where.OR = [{ title: { contains: req.query.search.trim() } }, { description: { contains: req.query.search.trim() } }];
   const media = await prisma.media.findMany({ where, include: { episodes: { where: { status: "PUBLISHED" }, orderBy: [{ seasonNumber: "asc" }, { episodeNumber: "asc" }] }, creator: { select: { id: true, displayName: true, avatarUrl: true } } }, orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }], take: 100 });
   res.json({ media: serializeMediaList(media) });
