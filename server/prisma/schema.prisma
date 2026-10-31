@@ -7,14 +7,43 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum AccountRole { USER ADMIN }
-enum ProfileKind { STANDARD KIDS }
-enum SubscriptionTier { FREE PREMIUM }
-enum CreatorStatus { NONE PENDING ACTIVE SUSPENDED }
-enum MediaKind { MOVIE SERIES EPISODE HOME_VIDEO }
-enum MediaSourceType { UPLOAD EMBED }
-enum PublishStatus { DRAFT PUBLISHED PROCESSING }
-enum StreamStatus { OFFLINE LIVE }
+enum AccountRole {
+  USER
+  ADMIN
+}
+enum ProfileKind {
+  STANDARD
+  KIDS
+}
+enum SubscriptionTier {
+  FREE
+  PREMIUM
+}
+enum CreatorStatus {
+  NONE
+  PENDING
+  ACTIVE
+  SUSPENDED
+}
+enum MediaKind {
+  MOVIE
+  SERIES
+  EPISODE
+  HOME_VIDEO
+}
+enum MediaSourceType {
+  UPLOAD
+  EMBED
+}
+enum PublishStatus {
+  DRAFT
+  PUBLISHED
+  PROCESSING
+}
+enum StreamStatus {
+  OFFLINE
+  LIVE
+}
 
 model User {
   id                 String   @id @default(cuid())
