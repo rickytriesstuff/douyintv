@@ -12,12 +12,17 @@ import multer from "multer";
 import path from "node:path";
 import fs from "node:fs";
 import { randomUUID } from "node:crypto";
+import { Storage } from "@google-cloud/storage";
 
 const app = express();
 const prisma = new PrismaClient();
 const port = Number(process.env.PORT || 4000);
 const mediaDir = path.resolve(process.env.MEDIA_DIR || path.join(process.cwd(), "server", "uploads"));
 fs.mkdirSync(mediaDir, { recursive: true });
+const gcsBucketName = process.env.GCS_BUCKET_NAME;
+const gcsCredentials = process.env.GOOGLE_CLOUD_KEY_JSON ? JSON.parse(process.env.GOOGLE_CLOUD_KEY_JSON) : undefined;
+const gcsStorage = gcsBucketName ? new Storage({ projectId: process.env.GOOGLE_CLOUD_PROJECT, ...(gcsCredentials ? { credentials: gcsCredentials } : process.env.GOOGLE_APPLICATION_CREDENTIALS ? { keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS } : {}) }) : null;
+const gcsBucket = gcsStorage && gcsBucketName ? gcsStorage.bucket(gcsBucketName) : null;
 const upload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, mediaDir),
@@ -29,7 +34,48 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => cb(null, file.mimetype.startsWith("video/"))
 });
-app.use("/media", express.static(mediaDir, { fallthrough: false, setHeaders: (res) => res.setHeader("Cache-Control", "public, max-age=31536000, immutable") }));
+async function persistUploadedFile(file: Express.Multer.File): Promise<string> {
+  if (gcsBucket) {
+    await gcsBucket.upload(file.path, { destination: file.filename, resumable: true, metadata: { contentType: file.mimetype || "application/octet-stream", cacheControl: "private, max-age=3600" } });
+    await fs.promises.unlink(file.path).catch(() => undefined);
+  }
+  return file.filename;
+}
+async function streamMedia(req: express.Request, res: express.Response) {
+  const filename = path.basename(req.params.filename);
+  if (!filename || filename !== req.params.filename) return res.status(400).end();
+  if (!gcsBucket) return res.sendFile(path.join(mediaDir, filename), (error) => { if (error && !res.headersSent) res.status(error.statusCode || 404).end(); });
+  try {
+    const object = gcsBucket.file(filename);
+    const [metadata] = await object.getMetadata();
+    const size = Number(metadata.size || 0);
+    res.setHeader("Content-Type", metadata.contentType || "application/octet-stream");
+    res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    const range = req.headers.range;
+    if (range) {
+      const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+      if (!match) return res.status(416).setHeader("Content-Range", "bytes */" + size).end();
+      const start = match[1] ? Number(match[1]) : 0;
+      const end = match[2] ? Math.min(Number(match[2]), size - 1) : size - 1;
+      if (start > end || start >= size) return res.status(416).setHeader("Content-Range", "bytes */" + size).end();
+      res.status(206);
+      res.setHeader("Content-Range", "bytes " + start + "-" + end + "/" + size);
+      res.setHeader("Content-Length", String(end - start + 1));
+      if (req.method === "HEAD") return res.end();
+      return object.createReadStream({ start, end }).on("error", () => { if (!res.headersSent) res.status(404).end(); else res.destroy(); }).pipe(res);
+    }
+    res.setHeader("Content-Length", String(size));
+    if (req.method === "HEAD") return res.end();
+    object.createReadStream().on("error", () => { if (!res.headersSent) res.status(404).end(); else res.destroy(); }).pipe(res);
+  } catch (error: any) {
+    if (error.code === 404) return res.status(404).end();
+    console.error("Google Cloud Storage media error:", error);
+    return res.status(502).json({ error: "Media storage is temporarily unavailable" });
+  }
+}
+app.get("/media/:filename", streamMedia);
+app.head("/media/:filename", streamMedia);
 const publicApiBase = () => (process.env.PUBLIC_API_URL || "").replace(/\/$/, "");
 const serializeMedia = (item: any): any => item ? { ...item, genres: typeof item.genres === "string" ? JSON.parse(item.genres || "[]") : item.genres, cast: typeof item.cast === "string" ? JSON.parse(item.cast || "[]") : item.cast, ...(item.episodes ? { episodes: item.episodes.map(serializeMedia) } : {}) } : item;
 const serializeMediaList = (items: any[]) => items.map(serializeMedia);
@@ -77,7 +123,7 @@ function requireAdmin(req: express.Request, res: express.Response, next: express
   next();
 }
 
-app.get("/api/health", (_req, res) => res.json({ ok: true, app: "douyintv", database: "sqlite", mediaStorage: "local-disk" }));
+app.get("/api/health", (_req, res) => res.json({ ok: true, app: "douyintv", database: "sqlite", mediaStorage: gcsBucket ? "google-cloud-storage" : "local-disk" }));
 app.post("/api/auth/register", async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || "Invalid details" });
@@ -174,10 +220,17 @@ app.patch("/api/admin/media/:id", requireAuth, requireAdmin, async (req, res) =>
 });
 app.delete("/api/admin/media/:id", requireAuth, requireAdmin, async (req, res) => { await prisma.media.delete({ where: { id: req.params.id } }); res.status(204).end(); });
 
-app.post("/api/admin/uploads", requireAuth, requireAdmin, upload.single("file"), (req, res) => {
+app.post("/api/admin/uploads", requireAuth, requireAdmin, upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "Choose a valid video file (maximum 5GB)." });
-  const sourceUrl = (publicApiBase() || `${req.protocol}://${req.get("host")}`) + "/media/" + req.file.filename;
-  res.status(201).json({ sourceUrl, fileName: req.file.filename, size: req.file.size });
+  try {
+    const filename = await persistUploadedFile(req.file);
+    const sourceUrl = (publicApiBase() || req.protocol + "://" + req.get("host")) + "/media/" + filename;
+    res.status(201).json({ sourceUrl, fileName: filename, size: req.file.size, storage: gcsBucket ? "google-cloud-storage" : "local-disk" });
+  } catch (error) {
+    console.error("Admin media upload failed:", error);
+    await fs.promises.unlink(req.file.path).catch(() => undefined);
+    res.status(502).json({ error: "Could not save the video to media storage" });
+  }
 });
 app.get("/api/admin/live-channels", requireAuth, requireAdmin, async (_req, res) => res.json({ channels: await prisma.liveChannel.findMany({ orderBy: { sortOrder: "asc" } }) }));
 app.post("/api/admin/live-channels", requireAuth, requireAdmin, async (req, res) => {
@@ -230,11 +283,18 @@ app.put("/api/creator/tip-link", requireAuth, async (req, res) => {
 app.post("/api/creator/uploads", requireAuth, async (req, res) => {
  const user = await prisma.user.findUnique({ where: { id: req.session.user!.id } });
  if (user?.subscription !== "PREMIUM" || user.creatorStatus !== "ACTIVE") return res.status(403).json({ error: "An active Premium creator account is required" });
- upload.single("file")(req, res, (error) => {
+ upload.single("file")(req, res, async (error) => {
    if (error) return res.status(400).json({ error: (error as Error).message || "Upload failed" });
    if (!req.file) return res.status(400).json({ error: "Choose a valid video file (maximum 5GB)." });
-   const sourceUrl = (publicApiBase() || `${req.protocol}://${req.get("host")}`) + "/media/" + req.file.filename;
-   res.status(201).json({ sourceUrl, fileName: req.file.filename, size: req.file.size });
+   try {
+     const filename = await persistUploadedFile(req.file);
+     const sourceUrl = (publicApiBase() || req.protocol + "://" + req.get("host")) + "/media/" + filename;
+     res.status(201).json({ sourceUrl, fileName: filename, size: req.file.size, storage: gcsBucket ? "google-cloud-storage" : "local-disk" });
+   } catch (storageError) {
+     console.error("Creator media upload failed:", storageError);
+     await fs.promises.unlink(req.file!.path).catch(() => undefined);
+     res.status(502).json({ error: "Could not save the video to media storage" });
+   }
  });
 });
 app.post("/api/creator/media", requireAuth, async (req, res) => {
