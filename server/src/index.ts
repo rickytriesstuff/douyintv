@@ -225,7 +225,7 @@ app.post("/api/creator/media", requireAuth, async (req, res) => {
 
 
 app.get("/api/admin/creators", requireAuth, requireAdmin, async (_req, res) => {
- const creators = await prisma.user.findMany({ where: { creatorStatus: { in: ["PENDING","ACTIVE","SUSPENDED"] } }, select: { id: true, email: true, displayName: true, subscription: true, creatorStatus: true, createdAt: true, tipLink: true }, orderBy: { createdAt: "desc" } });
+ const creators = await prisma.user.findMany({ where: { creatorStatus: { in: ["PENDING","ACTIVE","SUSPENDED"] } }, select: { id: true, email: true, displayName: true, subscription: true, creatorStatus: true, createdAt: true }, orderBy: { createdAt: "desc" } });
  res.json({ creators });
 });
 app.patch("/api/admin/creators/:id", requireAuth, requireAdmin, async (req, res) => {
