@@ -3,47 +3,10 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
-enum AccountRole {
-  USER
-  ADMIN
-}
-enum ProfileKind {
-  STANDARD
-  KIDS
-}
-enum SubscriptionTier {
-  FREE
-  PREMIUM
-}
-enum CreatorStatus {
-  NONE
-  PENDING
-  ACTIVE
-  SUSPENDED
-}
-enum MediaKind {
-  MOVIE
-  SERIES
-  EPISODE
-  HOME_VIDEO
-}
-enum MediaSourceType {
-  UPLOAD
-  EMBED
-}
-enum PublishStatus {
-  DRAFT
-  PUBLISHED
-  PROCESSING
-}
-enum StreamStatus {
-  OFFLINE
-  LIVE
-}
 
 model User {
   id                 String   @id @default(cuid())
@@ -52,10 +15,10 @@ model User {
   googleId           String?  @unique
   displayName        String
   avatarUrl          String?
-  role               AccountRole @default(USER)
-  subscription       SubscriptionTier @default(FREE)
-  subscriptionPrice  Decimal  @default(0) @db.Decimal(8,2)
-  creatorStatus      CreatorStatus @default(NONE)
+  role               String @default("USER")
+  subscription       String @default("FREE")
+  subscriptionPrice  Decimal  @default(0)
+  creatorStatus      String @default("NONE")
   profiles           Profile[]
   media              Media[]  @relation("CreatorMedia")
   watchProgress      WatchProgress[]
@@ -101,8 +64,8 @@ model Media {
   title         String
   slug          String @unique
   description   String @default("")
-  kind          MediaKind
-  sourceType    MediaSourceType @default(UPLOAD)
+  kind          String
+  sourceType    String @default("UPLOAD")
   sourceUrl     String?
   playbackUrl   String?
   posterUrl     String?
@@ -112,12 +75,12 @@ model Media {
   year          Int?
   ageRating     String?
   rating        Float?
-  genres        String[]
-  cast          String[]
-  status        PublishStatus @default(DRAFT)
+  genres        String @default("[]")
+  cast          String @default("[]")
+  status        String @default("DRAFT")
   isFeatured    Boolean @default(false)
   isLive        Boolean @default(false)
-  streamStatus  StreamStatus @default(OFFLINE)
+  streamStatus  String @default("OFFLINE")
   seasonNumber  Int?
   episodeNumber Int?
   parentId      String?
@@ -209,7 +172,7 @@ model CreatorTip {
   id          String @id @default(cuid())
   creatorId   String
   viewerId    String?
-  amount      Decimal @db.Decimal(10,2)
+  amount      Decimal
   currency    String @default("USD")
   externalRef String?
   createdAt   DateTime @default(now())
