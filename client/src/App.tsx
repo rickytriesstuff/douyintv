@@ -5,7 +5,7 @@ import "./admin.css";
 import {useEffect,useState} from "react";
 import {Play,Search,Bell,ChevronDown,Clapperboard,Tv,Compass,Plus,Menu,X,Eye,EyeOff} from "lucide-react";
 type User={id:string;email:string;displayName:string;role:string;subscription:string;creatorStatus:string};
-const API=import.meta.env.VITE_API_URL||"http://localhost:4000";
+const API=import.meta.env.VITE_API_URL||(import.meta.env.DEV?"http://localhost:4000":"");
 const titles=[["THE LAST FRONTIER","A team ventures beyond the edge of the known world.","#24364a"],["NEON CITY","Every secret has a price.","#3b1f45"],["WILD EARTH","The planet, untamed.","#264436"],["AFTER HOURS","One night changes everything.","#49302a"],["THE DEEP","Some things should stay below.","#1c3946"]];
 const recent=[["ECHOES OF TOMORROW","The future remembers everything.","#352b48"],["RED HORIZON","A new world. No second chances.","#572b2c"],["SILENT RUN","Keep moving. Stay alive.","#343b43"],["GOLDEN","Fortune favors the fearless.","#4b4027"],["THE SIGNAL","Can you hear it?","#263d3c"]];
 export default function App(){
