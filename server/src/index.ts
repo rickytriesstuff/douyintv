@@ -44,7 +44,7 @@ async function persistUploadedFile(file: Express.Multer.File): Promise<string> {
 async function streamMedia(req: express.Request, res: express.Response) {
   const filename = path.basename(req.params.filename);
   if (!filename || filename !== req.params.filename) return res.status(400).end();
-  if (!gcsBucket) return res.sendFile(path.join(mediaDir, filename), (error) => { if (error && !res.headersSent) res.status(error.statusCode || 404).end(); });
+  if (!gcsBucket) return res.sendFile(path.join(mediaDir, filename), (error) => { if (error && !res.headersSent) res.status((error as NodeJS.ErrnoException & { statusCode?: number }).statusCode || 404).end(); });
   try {
     const object = gcsBucket.file(filename);
     const [metadata] = await object.getMetadata();
