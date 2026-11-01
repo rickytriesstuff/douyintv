@@ -6,7 +6,7 @@ A cinematic streaming and creator platform built in staged releases.
 - React, TypeScript, Tailwind CSS, Vite
 - Node.js, Express REST API
 - Prisma + SQLite (no hosted PostgreSQL required)
-- Local persistent disk for uploaded videos (no S3 credentials or public bucket URL)
+- Google Cloud Storage for uploaded videos (optional local-disk fallback; no S3 credentials)
 - Optional Google OAuth and TMDB metadata
 
 ## Requirements
@@ -33,12 +33,13 @@ UPDATE User SET role = 'ADMIN' WHERE email = 'your-email@example.com';
 Sign out and back in. Admin UI and API routes enforce the server-side ADMIN role.
 
 ## Video uploads and deployment
-- Admin and approved creators can upload video files directly to the API server. The current single-file upload limit is 5GB.
-- Files are served from the API under `/media/<filename>`; the API returns the full playback URL automatically.
-- Set `MEDIA_DIR` to a persistent mounted disk path on your hosting provider. Set `PUBLIC_API_URL` to the public HTTPS URL of the API service.
-- The backend must run as a persistent Node.js service with persistent disk. GitHub stores the source code and can run CI, but GitHub Pages cannot run this backend or accept durable video uploads.
-- Do not deploy the database or media directory on ephemeral storage. Without a persistent disk, uploads and SQLite data can disappear on restart/redeploy.
-- This simple local-file approach serves original uploaded files. HLS transcoding/adaptive bitrate processing is a later stage and is not implemented yet.
+- Admin and approved creators can upload video files directly from the browser. The current single-file upload limit is 5GB.
+- Configure `GCS_BUCKET_NAME` and `GOOGLE_CLOUD_PROJECT`, plus either `GOOGLE_APPLICATION_CREDENTIALS` (secure service-account JSON file path) or `GOOGLE_CLOUD_KEY_JSON` (service-account JSON stored as a server secret). Never commit credentials.
+- Uploaded objects are stored in Google Cloud Storage. Playback is streamed through the API with HTTP byte-range support, so the bucket can remain private and no public bucket URL is required.
+- If GCS is not configured, uploads fall back to `MEDIA_DIR` on local disk. For that mode, the API host needs persistent disk.
+- Set `PUBLIC_API_URL` to the public HTTPS URL of the API service.
+- GitHub stores the source code and runs CI, but GitHub Pages cannot run this backend or accept durable video uploads. The Node.js API and SQLite database still need a persistent server host/volume.
+- This release serves original uploaded files. HLS transcoding/adaptive bitrate processing is a later stage and is not implemented yet.
 
 ## Optional integrations
 Google OAuth requires `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and a matching callback URL. TMDB metadata search requires `TMDB_API_KEY`. Neither is required for basic email/password accounts and manually entered titles.
