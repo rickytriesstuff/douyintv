@@ -220,18 +220,7 @@ app.patch("/api/admin/media/:id", requireAuth, requireAdmin, async (req, res) =>
 });
 app.delete("/api/admin/media/:id", requireAuth, requireAdmin, async (req, res) => { await prisma.media.delete({ where: { id: req.params.id } }); res.status(204).end(); });
 
-app.post("/api/admin/uploads", requireAuth, requireAdmin, upload.single("file"), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: "Choose a valid video file (maximum 5GB)." });
-  try {
-    const filename = await persistUploadedFile(req.file);
-    const sourceUrl = (publicApiBase() || req.protocol + "://" + req.get("host")) + "/media/" + filename;
-    res.status(201).json({ sourceUrl, fileName: filename, size: req.file.size, storage: gcsBucket ? "google-cloud-storage" : "local-disk" });
-  } catch (error) {
-    console.error("Admin media upload failed:", error);
-    await fs.promises.unlink(req.file.path).catch(() => undefined);
-    res.status(502).json({ error: "Could not save the video to media storage" });
-  }
-});
+app.post("/api/admin/uploads", requireAuth, requireAdmin, (_req, res) => res.status(410).json({ error: "Direct uploads are temporarily disabled. Add an external video or iframe embed URL. Cloudflare R2 uploads are planned." }));
 app.get("/api/admin/live-channels", requireAuth, requireAdmin, async (_req, res) => res.json({ channels: await prisma.liveChannel.findMany({ orderBy: { sortOrder: "asc" } }) }));
 app.post("/api/admin/live-channels", requireAuth, requireAdmin, async (req, res) => {
   const parsed = z.object({ name: z.string().trim().min(1).max(120), description: z.string().max(500).optional(), embedUrl: embedUrlSchema, thumbnailUrl: z.string().url().optional().or(z.literal("")), category: z.string().max(80).optional(), isActive: z.boolean().default(true), sortOrder: z.number().int().default(0) }).safeParse(req.body);
@@ -280,23 +269,7 @@ app.put("/api/creator/tip-link", requireAuth, async (req, res) => {
 });
 
 
-app.post("/api/creator/uploads", requireAuth, async (req, res) => {
- const user = await prisma.user.findUnique({ where: { id: req.session.user!.id } });
- if (user?.subscription !== "PREMIUM" || user.creatorStatus !== "ACTIVE") return res.status(403).json({ error: "An active Premium creator account is required" });
- upload.single("file")(req, res, async (error) => {
-   if (error) return res.status(400).json({ error: (error as Error).message || "Upload failed" });
-   if (!req.file) return res.status(400).json({ error: "Choose a valid video file (maximum 5GB)." });
-   try {
-     const filename = await persistUploadedFile(req.file);
-     const sourceUrl = (publicApiBase() || req.protocol + "://" + req.get("host")) + "/media/" + filename;
-     res.status(201).json({ sourceUrl, fileName: filename, size: req.file.size, storage: gcsBucket ? "google-cloud-storage" : "local-disk" });
-   } catch (storageError) {
-     console.error("Creator media upload failed:", storageError);
-     await fs.promises.unlink(req.file!.path).catch(() => undefined);
-     res.status(502).json({ error: "Could not save the video to media storage" });
-   }
- });
-});
+app.post("/api/creator/uploads", requireAuth, (_req, res) => res.status(410).json({ error: "Direct uploads are temporarily disabled. Add an external video or iframe embed URL. Cloudflare R2 uploads are planned." }));
 app.post("/api/creator/media", requireAuth, async (req, res) => {
   const user = await prisma.user.findUnique({ where: { id: req.session.user!.id } });
   if (user?.subscription !== "PREMIUM" || user.creatorStatus !== "ACTIVE") return res.status(403).json({ error: "An active Premium creator account is required" });
