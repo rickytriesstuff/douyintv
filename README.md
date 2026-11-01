@@ -6,7 +6,7 @@ A cinematic streaming and creator platform built in staged releases.
 - React, TypeScript, Tailwind CSS, Vite
 - Node.js, Express REST API
 - Prisma + SQLite (no hosted PostgreSQL required)
-- Google Cloud Storage for uploaded videos (optional local-disk fallback; no S3 credentials)
+- External video embeds for the current release; Cloudflare R2 planned for direct uploads
 - Optional Google OAuth and TMDB metadata
 
 ## Requirements
@@ -32,14 +32,13 @@ UPDATE User SET role = 'ADMIN' WHERE email = 'your-email@example.com';
 
 Sign out and back in. Admin UI and API routes enforce the server-side ADMIN role.
 
-## Video uploads and deployment
-- Admin and approved creators can upload video files directly from the browser. The current single-file upload limit is 5GB.
-- Configure `GCS_BUCKET_NAME` and `GOOGLE_CLOUD_PROJECT`, plus either `GOOGLE_APPLICATION_CREDENTIALS` (secure service-account JSON file path) or `GOOGLE_CLOUD_KEY_JSON` (service-account JSON stored as a server secret). Never commit credentials.
-- Uploaded objects are stored in Google Cloud Storage. Playback is streamed through the API with HTTP byte-range support, so the bucket can remain private and no public bucket URL is required.
-- If GCS is not configured, uploads fall back to `MEDIA_DIR` on local disk. For that mode, the API host needs persistent disk.
-- Set `PUBLIC_API_URL` to the public HTTPS URL of the API service.
-- GitHub stores the source code and runs CI, but GitHub Pages cannot run this backend or accept durable video uploads. The Node.js API and SQLite database still need a persistent server host/volume.
-- This release serves original uploaded files. HLS transcoding/adaptive bitrate processing is a later stage and is not implemented yet.
+## Video hosting and deployment
+- For now, add videos using external HTTP/HTTPS video URLs or iframe embed URLs. The original provider handles video hosting and playback bandwidth.
+- Direct video uploads are intentionally disabled in both the admin and creator interfaces and their API endpoints return HTTP 410. This prevents video files from being stored in Git history or on an ephemeral application server.
+- GitHub stores the source code and runs CI. GitHub is not used as a video CDN or media bucket, and GitHub Pages cannot run the Node.js API.
+- Cloudflare R2 is the planned storage destination for a later upload release. The integration should use private object storage and controlled playback URLs or a media delivery layer.
+- The Node.js API and SQLite database still need a persistent server host/volume for production accounts and library data.
+- Only embed or link media that you own or are authorised to distribute.
 
 ## Optional integrations
 Google OAuth requires `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and a matching callback URL. TMDB metadata search requires `TMDB_API_KEY`. Neither is required for basic email/password accounts and manually entered titles.
